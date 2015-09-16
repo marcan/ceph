@@ -1555,7 +1555,6 @@ OSD::OSD(CephContext *cct_, ObjectStore *store_,
   debug_drop_pg_create_duration(cct->_conf->osd_debug_drop_pg_create_duration),
   debug_drop_pg_create_left(-1),
   stats_ack_timeout(cct->_conf->osd_mon_ack_timeout),
-  outstanding_pg_stats(0),
   up_thru_wanted(0), up_thru_pending(0),
   pg_stat_queue_lock("OSD::pg_stat_queue_lock"),
   osd_stat_updated(false),
@@ -3979,7 +3978,7 @@ void OSD::tick()
     bool report = false;
     utime_t now = ceph_clock_now(cct);
     pg_stat_queue_lock.Lock();
-    if (outstanding_pg_stats &&
+    if (!outstanding_pg_stats.empty() &&
 	(now - stats_ack_timeout) > last_pg_stats_ack) {
       dout(1) << __func__ << " mon hasn't acked PGStats in "
 	      << now - last_pg_stats_ack
@@ -3993,7 +3992,8 @@ void OSD::tick()
     if (now - last_pg_stats_sent > cct->_conf->osd_mon_report_interval_max) {
       osd_stat_updated = true;
       report = true;
-    } else if (outstanding_pg_stats >= cct->_conf->osd_mon_report_max_in_flight) {
+    } else if ((int)outstanding_pg_stats.size() >=
+	       cct->_conf->osd_mon_report_max_in_flight) {
       dout(20) << __func__ << " have max " << outstanding_pg_stats
 	       << " stats updates in flight" << dendl;
     } else {
@@ -4371,7 +4371,7 @@ void OSD::ms_handle_connect(Connection *con)
 
     // reset pg stats state
     pg_stat_queue_lock.Lock();
-    outstanding_pg_stats = 0;
+    outstanding_pg_stats.clear();
     pg_stat_queue_lock.Unlock();
 
     if (is_booting()) {
@@ -4700,8 +4700,10 @@ void OSD::send_pg_stats(const utime_t &now)
     had_for -= had_map_since;
 
     MPGStats *m = new MPGStats(monc->get_fsid(), osdmap->get_epoch(), had_for);
-    m->set_tid(++pg_stat_tid);
+    uint64_t tid = ++pg_stat_tid;
+    m->set_tid(tid);
     m->osd_stat = cur_stat;
+    outstanding_pg_stats.insert(tid);
 
     xlist<PG*>::iterator p = pg_stat_queue.begin();
     while (!p.end()) {
@@ -4724,12 +4726,10 @@ void OSD::send_pg_stats(const utime_t &now)
       pg->pg_stats_publish_lock.Unlock();
     }
 
-    if (!outstanding_pg_stats) {
+    if (!outstanding_pg_stats.empty()) {
       last_pg_stats_ack = ceph_clock_now(cct);
     }
-    ++outstanding_pg_stats;
-    dout(20) << __func__ << "  " << outstanding_pg_stats << " updates pending"
-	     << dendl;
+    dout(20) << __func__ << "  updates pending: " << outstanding_pg_stats << dendl;
 
     monc->send_mon_message(m);
   }
@@ -4786,13 +4786,12 @@ void OSD::handle_pg_stats_ack(MPGStatsAck *ack)
     }
   }
 
-  assert(outstanding_pg_stats > 0);
-  --outstanding_pg_stats;
+  assert(!outstanding_pg_stats.empty());
+  outstanding_pg_stats.erase(ack->get_tid());
   if (!pg_stat_queue.size()) {
-    assert(outstanding_pg_stats == 0);
+    assert(outstanding_pg_stats.empty());
   }
-  dout(20) << __func__ << "  " << outstanding_pg_stats << " updates pending"
-	   << dendl;
+  dout(20) << __func__ << "  sill pending: " << outstanding_pg_stats << dendl;
 
   pg_stat_queue_lock.Unlock();
 
