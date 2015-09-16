@@ -3989,7 +3989,6 @@ void OSD::tick()
       last_pg_stats_sent = utime_t();
       stats_ack_timeout = MAX(g_conf->osd_mon_ack_timeout,
 			      stats_ack_timeout * 2.0);
-      outstanding_pg_stats = 0;
     }
     if (now - last_pg_stats_sent > cct->_conf->osd_mon_report_interval_max) {
       osd_stat_updated = true;
@@ -4011,7 +4010,7 @@ void OSD::tick()
 
     if (reset)
       monc->reopen_session();
-    if (report)
+    else if (report)
       do_mon_report();
 
     map_lock.put_read();
@@ -4369,6 +4368,12 @@ void OSD::ms_handle_connect(Connection *con)
     if (is_stopping())
       return;
     dout(10) << "ms_handle_connect on mon" << dendl;
+
+    // reset pg stats state
+    pg_stat_queue_lock.Lock();
+    outstanding_pg_stats = 0;
+    pg_stat_queue_lock.Unlock();
+
     if (is_booting()) {
       start_boot();
     } else {
