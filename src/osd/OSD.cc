@@ -4010,8 +4010,14 @@ void OSD::tick()
 
     if (reset)
       monc->reopen_session();
-    else if (report)
-      do_mon_report();
+    else if (report) {
+      last_mon_report = now;
+
+      // do any pending reports
+      service.send_pg_temp();
+      send_failures();
+      send_pg_stats(now);
+    }
 
     map_lock.put_read();
   }
@@ -4347,20 +4353,6 @@ void OSD::RemoveWQ::_process(
 }
 // =========================================
 
-void OSD::do_mon_report()
-{
-  dout(7) << "do_mon_report" << dendl;
-
-  utime_t now(ceph_clock_now(cct));
-  last_mon_report = now;
-
-  // do any pending reports
-  send_alive();
-  service.send_pg_temp();
-  send_failures();
-  send_pg_stats(now);
-}
-
 void OSD::ms_handle_connect(Connection *con)
 {
   if (con->get_peer_type() == CEPH_ENTITY_TYPE_MON) {
@@ -4384,7 +4376,7 @@ void OSD::ms_handle_connect(Connection *con)
       send_alive();
       service.send_pg_temp();
       send_failures();
-      send_pg_stats(ceph_clock_now(cct));
+      send_pg_stats(now);
 
       monc->sub_want("osd_pg_creates", 0, CEPH_SUBSCRIBE_ONETIME);
       monc->sub_want("osdmap", osdmap->get_epoch(), CEPH_SUBSCRIBE_ONETIME);
@@ -4630,9 +4622,6 @@ void OSD::queue_want_up_thru(epoch_t want)
 	     << ", currently " << cur
 	     << dendl;
     up_thru_wanted = want;
-
-    // expedite, a bit.  WARNING this will somewhat delay other mon queries.
-    last_mon_report = ceph_clock_now(cct);
     send_alive();
   } else {
     dout(10) << "queue_want_up_thru want " << want << " <= queued " << up_thru_wanted 
