@@ -1019,7 +1019,7 @@ void Objecter::handle_osd_map(MOSDMap *m)
   bool was_pausewr = osdmap->test_flag(CEPH_OSDMAP_PAUSEWR) || cluster_full || _osdmap_has_pool_full();
   map<int64_t, bool> pool_full_map;
   for (map<int64_t, pg_pool_t>::const_iterator it = osdmap->get_pools().begin();
-       it != osdmap->get_pools().end(); it++)
+       it != osdmap->get_pools().end(); ++it)
     pool_full_map[it->first] = _osdmap_pool_full(it->second);
 
   
@@ -2423,7 +2423,7 @@ bool Objecter::_osdmap_pool_full(const int64_t pool_id) const
 bool Objecter::_osdmap_has_pool_full() const
 {
   for (map<int64_t, pg_pool_t>::const_iterator it = osdmap->get_pools().begin();
-       it != osdmap->get_pools().end(); it++) {
+       it != osdmap->get_pools().end(); ++it) {
     if (_osdmap_pool_full(it->second))
       return true;
   }
@@ -2447,7 +2447,7 @@ bool Objecter::_osdmap_full_flag() const
 void Objecter::update_pool_full_map(map<int64_t, bool>& pool_full_map)
 {
   for (map<int64_t, pg_pool_t>::const_iterator it = osdmap->get_pools().begin();
-       it != osdmap->get_pools().end(); it++) {
+       it != osdmap->get_pools().end(); ++it) {
     if (pool_full_map.find(it->first) == pool_full_map.end()) {
       pool_full_map[it->first] = _osdmap_pool_full(it->second);
     } else {
