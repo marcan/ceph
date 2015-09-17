@@ -324,6 +324,12 @@ bool PG::proc_replica_info(pg_shard_t from, const pg_info_t &oinfo)
     return false;
   }
 
+  if (get_osdmap()->is_down(from.osd)) {
+    dout(10) << " got info " << oinfo << " from down osd." << from
+	     << " discarding" << dendl;
+    return false;
+  }
+
   dout(10) << " got osd." << from << " " << oinfo << dendl;
   assert(is_primary());
   peer_info[from] = oinfo;

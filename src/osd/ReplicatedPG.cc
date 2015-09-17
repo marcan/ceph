@@ -2011,15 +2011,10 @@ bool ReplicatedPG::maybe_handle_cache(OpRequestRef op,
       }
 
       // Promote too?
-      bool promoting = false;
       if (!op->need_skip_promote()) {
-        promoting = maybe_promote(obc, missing_oid, oloc, in_hit_set,
-                                  pool.info.min_write_recency_for_promote,
-                                  OpRequestRef());
-      }
-      // purge the object in the cache if not promoting
-      if (!promoting) {
-	object_contexts.purge(obc->obs.oi.soid);
+        maybe_promote(obc, missing_oid, oloc, in_hit_set,
+	              pool.info.min_write_recency_for_promote,
+		      OpRequestRef());
       }
     } else {
       if (can_proxy_read)
@@ -7202,11 +7197,15 @@ void ReplicatedPG::finish_promote(int r, CopyResults *results,
     }
     tctx->new_obs.oi.size = results->object_size;
     tctx->new_obs.oi.user_version = results->user_version;
+
     // Don't care src object whether have data or omap digest
     if (results->object_size)
       tctx->new_obs.oi.set_data_digest(results->data_digest);
     if (results->has_omap)
       tctx->new_obs.oi.set_omap_digest(results->omap_digest);
+    tctx->new_obs.oi.truncate_seq = results->truncate_seq;
+    tctx->new_obs.oi.truncate_size = results->truncate_size;
+
     tctx->new_obs.oi.truncate_seq = results->truncate_seq;
     tctx->new_obs.oi.truncate_size = results->truncate_size;
 
@@ -8418,13 +8417,16 @@ int ReplicatedPG::find_object_context(const hobject_t& oid,
   // want the snapdir?
   if (oid.snap == CEPH_SNAPDIR) {
     // return head or snapdir, whichever exists.
-    ObjectContextRef obc = get_object_context(head, can_create);
+    ObjectContextRef headobc = get_object_context(head, can_create);
+    ObjectContextRef obc = headobc;
     if (!obc || !obc->obs.exists)
       obc = get_object_context(oid, can_create);
     if (!obc || !obc->obs.exists) {
       // if we have neither, we would want to promote the head.
       if (pmissing)
 	*pmissing = head;
+      if (pobc)
+	*pobc = headobc; // may be null
       return -ENOENT;
     }
     dout(10) << "find_object_context " << oid
@@ -8447,7 +8449,7 @@ int ReplicatedPG::find_object_context(const hobject_t& oid,
   }
 
   SnapSetContext *ssc = get_snapset_context(oid, can_create);
-  if (!ssc || !(ssc->exists)) {
+  if (!ssc || !(ssc->exists || can_create)) {
     dout(20) << __func__ << " " << oid << " no snapset" << dendl;
     if (pmissing)
       *pmissing = head;  // start by getting the head
@@ -8695,7 +8697,7 @@ SnapSetContext *ReplicatedPG::get_snapset_context(
   if (p != snapset_contexts.end()) {
     if (can_create || p->second->exists) {
       ssc = p->second;
-      ssc->exists = true;
+      ssc->exists = false;
     } else {
       return NULL;
     }
