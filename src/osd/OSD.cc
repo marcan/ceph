@@ -4788,9 +4788,6 @@ void OSD::handle_pg_stats_ack(MPGStatsAck *ack)
 
   assert(!outstanding_pg_stats.empty());
   outstanding_pg_stats.erase(ack->get_tid());
-  if (!pg_stat_queue.size()) {
-    assert(outstanding_pg_stats.empty());
-  }
   dout(20) << __func__ << "  sill pending: " << outstanding_pg_stats << dendl;
 
   pg_stat_queue_lock.Unlock();
