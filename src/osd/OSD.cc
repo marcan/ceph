@@ -4651,6 +4651,8 @@ void OSD::send_failures()
   utime_t now = ceph_clock_now(cct);
   while (!failure_queue.empty()) {
     int osd = failure_queue.begin()->first;
+    if (failure_pending.count(osd))
+      continue;
     int failed_for = (int)(double)(now - failure_queue.begin()->second);
     entity_inst_t i = osdmap->get_inst(osd);
     monc->send_mon_message(new MOSDFailure(monc->get_fsid(), i, failed_for,
